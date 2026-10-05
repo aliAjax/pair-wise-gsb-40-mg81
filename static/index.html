@@ -1,8 +1,57 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>海上搜救协调</title>
-<style>body{font:15px/1.6 system-ui,sans-serif;max-width:1100px;margin:30px auto;padding:0 20px;color:#17324d}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border:1px solid #cbd8e3;padding:8px;text-align:left}th{background:#edf5fb}code{background:#f2f5f7;padding:2px 5px}.card{background:#f7fbfe;border-left:5px solid #2784c7;padding:12px 16px}</style>
-<h1>海上搜救协调</h1><div class="card">页面读取实时状态。业务写入通过 README 中的 JSON API 完成，并需要 <code>X-User</code>、<code>X-Role</code>。</div>
+<style>
+body{font:15px/1.6 system-ui,sans-serif;max-width:1240px;margin:30px auto;padding:0 20px;color:#17324d}
+table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border:1px solid #cbd8e3;padding:8px;text-align:left;vertical-align:top}
+th{background:#edf5fb}code{background:#f2f5f7;padding:2px 5px}
+.card{background:#f7fbfe;border-left:5px solid #2784c7;padding:12px 16px;margin:12px 0}
+.tag{display:inline-block;border-radius:10px;padding:1px 9px;font-size:12px;color:#fff}
+.reserved{background:#c47f17}.active{background:#1f7a3d}.candidate{background:#8a6d3b}
+.invalidated{background:#8a8f96}.completed{background:#36609a}.abandoned{background:#7d3c98}
+.basis{font-size:12px;color:#5a6b7b}.conflict{color:#a13c32;font-size:12px}
+button{background:#2784c7;color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer}
+</style>
+<h1>海上搜救协调</h1>
+<div class="card">页面、时间线与导出读取同一份版本依据：每条协调链记录预占时的事件/资源/区域版本。写入通过 README 中的 JSON API 完成，并需要 <code>X-User</code>、<code>X-Role</code>。
+<button id="export" type="button">导出协调链 JSON</button></div>
 <h2>遇险事件</h2><table id="incidents"><thead><tr><th>编号</th><th>船名</th><th>状态</th><th>海况</th><th>负责机构</th><th>版本</th></tr></thead><tbody></tbody></table>
-<h2>资源</h2><table id="assets"><thead><tr><th>名称</th><th>类型</th><th>状态</th><th>航程</th></tr></thead><tbody></tbody></table>
-<h2>搜索区域</h2><table id="areas"><thead><tr><th>编号</th><th>事件</th><th>状态</th><th>优先级</th><th>资源</th></tr></thead><tbody></tbody></table>
-<h2>时间线</h2><ol id="timeline"></ol>
-<script>async function load(){const d=await fetch('/api/state').then(r=>r.json());const fill=(id,rows,cols)=>{document.querySelector('#'+id+' tbody').innerHTML=rows.map(r=>'<tr>'+cols.map(c=>`<td>${r[c]??''}</td>`).join('')+'</tr>').join('')};fill('incidents',d.incidents,['code','vessel_name','status','sea_state','lead_org','version']);fill('assets',d.assets,['name','kind','status','range_km']);fill('areas',d.search_areas,['code','incident_id','status','priority','assigned_asset_id']);document.querySelector('#timeline').innerHTML=d.timeline.slice(0,20).map(x=>`<li>${x.created_at} ${x.action} ${x.details}</li>`).join('')}load()</script></html>
+<h2>资源</h2><table id="assets"><thead><tr><th>名称</th><th>类型</th><th>状态</th><th>能力</th><th>航程</th><th>版本</th></tr></thead><tbody></tbody></table>
+<h2>搜索区域</h2><table id="areas"><thead><tr><th>编号</th><th>事件</th><th>状态</th><th>优先级</th><th>资源</th><th>版本</th></tr></thead><tbody></tbody></table>
+<h2>协调链（预占 / 候选 / 出发 / 失效）</h2>
+<table id="assignments"><thead><tr><th>#</th><th>阶段</th><th>区域</th><th>资源</th><th>航程核算</th><th>版本依据（事件/资源/区域）</th><th>冲突与来源</th><th>时间</th></tr></thead><tbody></tbody></table>
+<h2>时间线</h2><table id="timeline"><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>详情</th><th>版本依据</th></tr></thead><tbody></tbody></table>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const tag=p=>`<span class="tag ${p}">${esc(p)}</span>`;
+function basisCell(a){
+  if(a.basis && a.basis.backfilled) return `<span class="basis">旧数据回填</span><br><span class="basis">事件v${a.incident_version} / 资源v${a.asset_version} / 区域v${a.area_version}</span>`;
+  return `<span class="basis">事件v${a.incident_version} / 资源v${a.asset_version} / 区域v${a.area_version}</span>`;
+}
+async function load(){
+  const d=await fetch('/api/state').then(r=>r.json());
+  const fill=(id,rows,fn)=>{document.querySelector('#'+id+' tbody').innerHTML=rows.map(fn).join('')};
+  fill('incidents',d.incidents,r=>`<tr><td>${esc(r.code)}</td><td>${esc(r.vessel_name)}</td><td>${esc(r.status)}</td><td>${esc(r.sea_state)}</td><td>${esc(r.lead_org)}</td><td>v${esc(r.version)}</td></tr>`);
+  fill('assets',d.assets,r=>`<tr><td>${esc(r.name)}</td><td>${esc(r.kind)}</td><td>${esc(r.status)}</td><td>${esc(r.capabilities)}</td><td>${esc(r.range_km)} km</td><td>v${esc(r.version)}</td></tr>`);
+  fill('areas',d.search_areas,r=>`<tr><td>${esc(r.code)}</td><td>#${esc(r.incident_id)}</td><td>${esc(r.status)}</td><td>${esc(r.priority)}</td><td>${esc(r.assigned_asset_id??'')}</td><td>v${esc(r.version)}</td></tr>`);
+  fill('assignments',(d.assignments||[]).slice(0,100),a=>{
+    const conflicts=(a.conflicts||[]).map(c=>`<div class="conflict">⚠ ${esc(c.message||c.code)}</div>`).join('');
+    const stamp=a.departed_at?('出发 '+esc(a.departed_at)):(a.reserved_at?('预占 '+esc(a.reserved_at)):esc(a.created_at));
+    return `<tr><td>#${a.id}${a.basis&&a.basis.backfilled?' 🔁':''}</td><td>${tag(a.phase)}</td><td>#${a.area_id}（优先级${esc(a.priority)}）</td><td>#${a.asset_id}</td>
+      <td>${esc(a.distance_km)} km</td><td>${basisCell(a)}</td>
+      <td>${conflicts}<span class="basis">来源：${esc(a.source)}</span>${a.candidate_id!==undefined?`<br><span class="basis">候选 #${a.candidate_id}</span>`:''}</td>
+      <td><span class="basis">${stamp}</span></td></tr>`;
+  });
+  fill('timeline',d.timeline.slice(0,40),x=>{
+    let basis='<span class="basis">—</span>';
+    if(x.basis){
+      const b=JSON.parse(x.basis);
+      if(Object.keys(b).length) basis=`<span class="basis">${b.backfilled?'旧数据回填<br>':''}事件v${b.incident_version??'—'} / 资源v${b.asset_version??'—'} / 区域v${b.area_version??'—'}${b.assignment_id?(' / 链#'+b.assignment_id):''}</span>`;
+    }
+    return `<tr><td><span class="basis">${esc(x.created_at)}</span></td><td>${esc(x.actor)}</td><td>${esc(x.action)}</td><td><span class="basis">${esc(x.details)}</span></td><td>${basis}</td></tr>`;
+  });
+  document.querySelector('#export').onclick=async()=>{
+    const data=await fetch('/api/export').then(r=>r.blob());
+    const a=document.createElement('a');a.href=URL.createObjectURL(data);a.download='sar-chain-export.json';a.click();
+  };
+}
+load();
+</script>
